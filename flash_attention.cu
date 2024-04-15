@@ -10,8 +10,9 @@ void forward_kernel(const float* Q, const float* K, const float* V, const int N,
     int bx = blockIdx.x; int by = blockIdx.y; int bz = blockIdx.z;
 
     // Offset into Q,K,V,O,l,m - different for each batch and head
-    int q_offset = (bz*gridDim.y*gridDim.x*N*d+by*girdDim.x*N*d);
-    int kv_offset = (bz*gridDim.y*gridDim.x*N*d + by*gridDim.x*N*d );  
+    int q_offset = (by*gridDim.z*N*d + bz*N*d);
+    //int kv_offset = (bz*gridDim.y*gridDim.x*N*d + by*gridDim.x*N*d );
+    int kv_offset = (by*gridDim.x*N*d + bz*N*d);  
     int lm_offset = (bz*gridDim.y*gridDim.x*N+by*gridDim.x*N);
 ;
     //定义并分配sharing memory
@@ -20,16 +21,16 @@ void forward_kernel(const float* Q, const float* K, const float* V, const int N,
     //由于是并行所以S的空间也必须给够
     extern __shared__ float sram[];
     int tile_size = Bc * d;
-    int tile_s_size =N * Br;  
+    int tile_s_size =Bc * Br;  
     float* Qi = sram;
-    float* Kj = &sram[tile_size* Tc];
-    float* Vj = &sram[tile_size *(Tc + 1) ];
-    float* S = &sram[tile_size * (Tc + 1 ) + tile_s_size];
-    float* O = &sram[tile_size * (Tc + ) + tile_s_size]
+    float* Kj = &sram[tile_size];
+    float* Vj = &sram[tile_size * 2 ];
+    float* S = &sram[tile_size * 2 + tile_s_size];
+    //float* O = &sram[tile_size * (Tc + ) + tile_s_size];
         //采用Tr并行的方式加载Q
         for(int x=0;x<d;x++){
             //Qi[(tx * d) + x] = Q[qkv_offset + (tile_size * i) + (tx * d) + x];
-            Qi[blockIdx.x * tile_size + (tx * d) + x] =Q[q_offset +tile_size * blockIdx.x + (tx * d) + x];
+            Qi[(tx * d) + x] =Q[q_offset +tile_size * blockIdx.x + (tx * d) + x];
         }
 
         //load Kj Vj TO SRAM
@@ -37,18 +38,21 @@ void forward_kernel(const float* Q, const float* K, const float* V, const int N,
         float  row_l_prev = l[lm_offset+blockIdx.x*Bc+tx];
         for(int j=0;j<Tr;j++){
             //加载K,V到SRAM中
-            float sum =0;
+        for(int m = 0;m<Br;m++ ){
+                        float sum =0;
         for (int x = 0; x < d; x++) {
             Kj[(tx * d) + x] = K[kv_offset + (tile_size * j) + (tx * d) + x];
+            Vj[(tx * d) + x] = V[kv_offset + (tile_size * j) + (tx * d) + x];
             //Vj[(tx * d) + x] = V[kv_offset + (tile_size * j) + (tx * d) + x];
-            sum += Qi[blockIdx.x * tile_size + (tx * d) + x] * Kj[(tx * d) + x];
+            sum += Qi[(tx * d) + x] * Kj[(tx * d) + x];
         }
-       	    S[blockIdx.x * Br * Bc + (tx * d)] = sum ;
+       	    S[(tx * d) + m] = sum ;
+        }
+
             //计算S的值
             //计算O的值
         for (int x = 0; x < d; x++) {
             //Kj[(tx * d) + x] = K[kv_offset + (tile_size * j) + (tx * d) + x];
-            Vj[(tx * d) + x] = V[kv_offset + (tile_size * j) + (tx * d) + x];
             O[blockIdx.x*tile_size+(tx * d) + x]=S[blockIdx.x * Br * Bc + ( tx * Br) + x] * Vj[(tx * d) + x];
         }       
         } 
@@ -74,9 +78,11 @@ torch::Tensor forward(torch::Tensor Q, torch::Tensor K, torch::Tensor V) {
     auto m = torch::full({B, nh, N}, -INFINITY);
     torch::Device device(torch::kCUDA);
     l = l.to(device); m = m.to(device);
+	
+    
+    //const int sram_size = ( 2 * N * d * sizeof(float)) + (2 * Bc * d * sizeof(float)) + (N * Br * sizeof(float));
 
-
-    const int sram_size = ( 2 * N * d * sizeof(float)) + (2 * Bc * d * sizeof(float)) + (N * Br * sizeof(float));
+    const int sram_size = (Bc * d * sizeof(float)) + (2 * Bc * d * sizeof(float)) + (N * Br * sizeof(float));
     int max_sram_size;
     cudaDeviceGetAttribute(&max_sram_size, cudaDevAttrMaxSharedMemoryPerBlock, 0);
     printf("Max shared memory: %d, requested shared memory: %d \\n", max_sram_size, sram_size);
@@ -84,7 +90,7 @@ torch::Tensor forward(torch::Tensor Q, torch::Tensor K, torch::Tensor V) {
     dim3 grid_dim(Tc , B, nh); 
     dim3 block_dim(Bc);  
 
-
+	//这里实际上每个块的sram_size而不是所有block的。
     forward_kernel<<<grid_dim, block_dim, sram_size>>>(
         Q.data_ptr<float>(), K.data_ptr<float>(), V.data_ptr<float>(),
         N, d, Tc, Tr, Bc, Br, softmax_scale,
