@@ -44,6 +44,13 @@ void forward_kernel(const float* Q, const float* K, const float* V, const int N,
         for (int x = 0; x < d; x++) {
             Kj[(tx * d) + x] = K[kv_offset + (tile_kv_size * j) + (tx * d) + x];
             Vj[(tx * d) + x] = V[kv_offset + (tile_kv_size * j) + (tx * d) + x];
+
+            if(j>0){
+            Oi[(tx * d) + x] = O[q_offset + (tile_q_size *(j-1))+ (tx * d) + x];
+            }else{
+            Oi[(tx * d) + x] = O[q_offset + (tile_q_size *j)+ (tx * d) + x];
+            }
+
             //Vj[(tx * d) + x] = V[kv_offset + (tile_size * j) + (tx * d) + x];
             sum += Qi[(tx * d) + x] * Kj[(tx * d) + x];
         }
@@ -59,21 +66,23 @@ void forward_kernel(const float* Q, const float* K, const float* V, const int N,
         int sum_new = 0;
 
         for(int x=0;x<Br;x++){
-            Si[(tx * d) + x] = __expf(Si[(tx * d) + x] - row_m_new);
-            sum_new += Si[(tx * d) + x] ;
+            Si[(tx * Br) + x] = __expf(Si[(tx * Br) + x] - row_m_new);
+            sum_new += Si[(tx * Br) + x] ;
         }
 
         float row_l_new = __expf(row_m_prev - row_m_new) * row_l_prev + sum_new ; 
+        for(int n =0;n < d;n++){
+            float pv=0; 
+            for(int x = 0; x< d; x++){
+                pv + =Si[(tx * d) + d] * Vj[(tx * Br) + x]; 
+        }
 
-        for(int x = 0; x< Br; x++){
-            O[bx * tile_q_size +(tx *d)+x] =(__expf(row_m_prev - row_m_new) * O[(bx-1) * tile_q_size + (tx *d) + x ]+Si[(tx * d) +x] * Vj[(tx * d) + x])*(1 / row_l_new);
+            Oi[(tx * d)+x] =(__expf(row_m_prev - row_m_new) * Oi[(tx * d) + x ]+ pv )*(1 / row_l_new);
         }
         m[lm_offset + (Bc * blockIdx.x) + tx] = row_m_new;
         l[lm_offset + (Bc * blockIdx.X) + tx ] = row_l_new;
              
         } 
-
-
 
     }
 
