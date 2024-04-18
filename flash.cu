@@ -14,11 +14,7 @@ void forward_kernel(const float* Q, const float* K, const float* V, const int N,
     //int kv_offset = (bz*gridDim.y*gridDim.x*N*d + by*gridDim.x*N*d );
     int kv_offset = (by*gridDim.z*N*d + bz*N*d);  
     int lm_offset = (by*gridDim.y*N+by*N);
-;
-    //定义并分配sharing memory
-    //其中Q要求分块加载但是必须要并行，所以要分配足够大的空间
-    //由于K,V可以分块，所以给tile_size的空间足够
-    //由于是并行所以S的空间也必须给够
+
     extern __shared__ float sram[];
     int tile_q_size = Bc * d;
     int tile_s_size = Bc * Br; 
@@ -34,9 +30,10 @@ void forward_kernel(const float* Q, const float* K, const float* V, const int N,
             Qi[(tx * d) + x] =Q[q_offset +tile_q_size * blockIdx.x + (tx * d) + x];
         }
 
-        for(int j=0;j<Tr;j++){
         float  row_m_prev = m[lm_offset+blockIdx.x*Bc+tx];
         float  row_l_prev = l[lm_offset+blockIdx.x*Bc+tx];
+        float  row_l_max  =  0;
+        for(int j=0;j<Tr;j++){
         float  row_m = -INFINITY;
         //加载K,V到SRAM中,compute Si
         for(int mi = 0;mi<Br;mi++ ){
@@ -69,21 +66,30 @@ void forward_kernel(const float* Q, const float* K, const float* V, const int N,
             Si[(tx * Br) + x] = __expf(Si[(tx * Br) + x] - row_m_new);
             sum_new += Si[(tx * Br) + x] ;
         }
-
+        //l2_new
         float row_l_new = __expf(row_m_prev - row_m_new) * row_l_prev + sum_new ; 
+
         for(int n =0;n < d;n++){
             float pv=0; 
             for(int x = 0; x<Br; x++){
                 pv += Si[(tx * Br) + x] * Vj[(x * d) + n]; 
         }
-
-            Oi[(tx * d) + n] =(__expf(row_m_prev - row_m_new) * Oi[(tx * d) + n ]+ pv )*(1 / row_l_new);
+           Oi[(tx * d)+ n ] =__expf(row_m_prev - row_m_new) * Oi[(tx *d) + n ]+ pv ;
         }
         m[lm_offset + (Bc * blockIdx.x) + tx] = row_m_new;
         l[lm_offset + (Bc * blockIdx.x) + tx ] = row_l_new;
-             
+        
+        row_l_max = row_l_new;
         } 
 
+        for(int i =0 ;i <d;i++){
+            Oi[(tx * d) + i] = Oi[(tx * d) + i] * (1/row_l_max);
+            O[q_offset + (tile_q_size * blockIdx.x)+(tx *d) + i] = Oi[(tx + d) + i];
+        }
+        
+
+
+        __syncthreads();
     }
 
 
@@ -107,9 +113,10 @@ torch::Tensor forward(torch::Tensor Q, torch::Tensor K, torch::Tensor V) {
     l = l.to(device); m = m.to(device);
 	
     
-    const int sram_size = ( 2 * N * d * sizeof(float)) + (2 * Bc * d * sizeof(float)) + (N * Br * sizeof(float));
+    //const int sram_size = ( 2 * N * d * sizeof(float)) + (2 * Bc * d * sizeof(float)) + (N * Br * sizeof(float));
 
-    //const int sram_size = (Bc * d * sizeof(float)) + (2 * Bc * d * sizeof(float)) + (N * Br * sizeof(float));
+    const int sram_size = (2 * Bc * d * sizeof(float)) + (2 * Br * d * sizeof(float)) + (Bc * Br * sizeof(float));
+
     int max_sram_size;
     cudaDeviceGetAttribute(&max_sram_size, cudaDevAttrMaxSharedMemoryPerBlock, 0);
     printf("Max shared memory: %d, requested shared memory: %d \\n", max_sram_size, sram_size);
@@ -117,7 +124,6 @@ torch::Tensor forward(torch::Tensor Q, torch::Tensor K, torch::Tensor V) {
     dim3 grid_dim(Tc , B, nh); 
     dim3 block_dim(Bc);  
 
-	//这里实际上每个块的sram_size而不是所有block的。
     forward_kernel<<<grid_dim, block_dim, sram_size>>>(
         Q.data_ptr<float>(), K.data_ptr<float>(), V.data_ptr<float>(),
         N, d, Tc, Tr, Bc, Br, softmax_scale,
