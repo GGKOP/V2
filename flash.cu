@@ -37,9 +37,9 @@ void forward_kernel(const float* Q, const float* K, const float* V, const int N,
         for(int j=0;j<Tr;j++){
         float  row_m_prev = m[lm_offset+blockIdx.x*Bc+tx];
         float  row_l_prev = l[lm_offset+blockIdx.x*Bc+tx];
-        float  row_m = -INFNIITY;
+        float  row_m = -INFINITY;
         //加载K,V到SRAM中,compute Si
-        for(int m = 0;m<Br;m++ ){
+        for(int mi = 0;mi<Br;mi++ ){
         float sum =0;
         for (int x = 0; x < d; x++) {
             Kj[(tx * d) + x] = K[kv_offset + (tile_kv_size * j) + (tx * d) + x];
@@ -54,7 +54,7 @@ void forward_kernel(const float* Q, const float* K, const float* V, const int N,
             //Vj[(tx * d) + x] = V[kv_offset + (tile_size * j) + (tx * d) + x];
             sum += Qi[(tx * d) + x] * Kj[(tx * d) + x];
         }
-       	    Si[(tx * d) + m] = sum ;
+       	    Si[(tx * d) + mi] = sum ;
 
             // find row max
             if(sum > row_m){
@@ -73,14 +73,14 @@ void forward_kernel(const float* Q, const float* K, const float* V, const int N,
         float row_l_new = __expf(row_m_prev - row_m_new) * row_l_prev + sum_new ; 
         for(int n =0;n < d;n++){
             float pv=0; 
-            for(int x = 0; x< d; x++){
-                pv + =Si[(tx * d) + d] * Vj[(tx * Br) + x]; 
+            for(int x = 0; x<Br; x++){
+                pv += Si[(tx * Br) + x] * Vj[(x * d) + n]; 
         }
 
-            Oi[(tx * d)+x] =(__expf(row_m_prev - row_m_new) * Oi[(tx * d) + x ]+ pv )*(1 / row_l_new);
+            Oi[(tx * d) + n] =(__expf(row_m_prev - row_m_new) * Oi[(tx * d) + n ]+ pv )*(1 / row_l_new);
         }
         m[lm_offset + (Bc * blockIdx.x) + tx] = row_m_new;
-        l[lm_offset + (Bc * blockIdx.X) + tx ] = row_l_new;
+        l[lm_offset + (Bc * blockIdx.x) + tx ] = row_l_new;
              
         } 
 
@@ -107,9 +107,9 @@ torch::Tensor forward(torch::Tensor Q, torch::Tensor K, torch::Tensor V) {
     l = l.to(device); m = m.to(device);
 	
     
-    //const int sram_size = ( 2 * N * d * sizeof(float)) + (2 * Bc * d * sizeof(float)) + (N * Br * sizeof(float));
+    const int sram_size = ( 2 * N * d * sizeof(float)) + (2 * Bc * d * sizeof(float)) + (N * Br * sizeof(float));
 
-    const int sram_size = (Bc * d * sizeof(float)) + (2 * Bc * d * sizeof(float)) + (N * Br * sizeof(float));
+    //const int sram_size = (Bc * d * sizeof(float)) + (2 * Bc * d * sizeof(float)) + (N * Br * sizeof(float));
     int max_sram_size;
     cudaDeviceGetAttribute(&max_sram_size, cudaDevAttrMaxSharedMemoryPerBlock, 0);
     printf("Max shared memory: %d, requested shared memory: %d \\n", max_sram_size, sram_size);
@@ -125,3 +125,4 @@ torch::Tensor forward(torch::Tensor Q, torch::Tensor K, torch::Tensor V) {
     );
     return O;
 }
+
