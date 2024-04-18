@@ -41,13 +41,6 @@ void forward_kernel(const float* Q, const float* K, const float* V, const int N,
         for (int x = 0; x < d; x++) {
             Kj[(tx * d) + x] = K[kv_offset + (tile_kv_size * j) + (tx * d) + x];
             Vj[(tx * d) + x] = V[kv_offset + (tile_kv_size * j) + (tx * d) + x];
-
-            if(j>0){
-            Oi[(tx * d) + x] = O[q_offset + (tile_q_size *(j-1))+ (tx * d) + x];
-            }else{
-            Oi[(tx * d) + x] = O[q_offset + (tile_q_size *j)+ (tx * d) + x];
-            }
-
             //Vj[(tx * d) + x] = V[kv_offset + (tile_size * j) + (tx * d) + x];
             sum += Qi[(tx * d) + x] * Kj[(tx * d) + x];
         }
