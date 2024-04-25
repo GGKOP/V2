@@ -2,7 +2,7 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 __global__
-void forward_kernel(const float* Q, const float* K, const float* V, const int N, const int d,
+void forward_kernel(const float* Q, const float* K, const float* V, const float* Mask ,const int N, const int d,
                     const int Tc, const int Tr, const int Bc, const int Br, const float softmax_scale,
                     float* l, float *m, float* O){
     int tx = threadIdx.x;
@@ -102,7 +102,7 @@ void forward_kernel(const float* Q, const float* K, const float* V, const int N,
 
 
 
-torch::Tensor forward(torch::Tensor Q, torch::Tensor K, torch::Tensor V) {
+torch::Tensor forward(torch::Tensor Q, torch::Tensor K, torch::Tensor V,torch::Tensor Mask) {
     const int Bc = 32; 
     const int Br = 32;
 
@@ -129,10 +129,11 @@ torch::Tensor forward(torch::Tensor Q, torch::Tensor K, torch::Tensor V) {
     dim3 block_dim(Bc);  
 
     forward_kernel<<<grid_dim, block_dim, sram_size>>>(
-        Q.data_ptr<float>(), K.data_ptr<float>(), V.data_ptr<float>(),
+        Q.data_ptr<float>(), K.data_ptr<float>(), V.data_ptr<float>(),Mask.data_ptr<float>(),
         N, d, Tc, Tr, Bc, Br, softmax_scale,
         l.data_ptr<float>(), m.data_ptr<float>(), O.data_ptr<float>()
     );
     return O;
 }
+
 
