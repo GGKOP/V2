@@ -10,7 +10,8 @@ void forward_kernel(const float* Q, const float* K, const float* V, const float*
 
     // Offset into Q,K,V,O,l,m - different for each batch and head
     int q_offset = (by*gridDim.z*N*d + bz*N*d);
-    int kv_offset = (by*gridDim.z*N*d + bz*N*d);  
+    int kv_offset = (by*gridDim.z*N*d + bz*N*d); 
+    //int L_offset = (by*gridDim.z*N + by*N ); 
 
     extern __shared__ float sram[];
     int tile_q_size = Bc * d;
@@ -24,7 +25,6 @@ void forward_kernel(const float* Q, const float* K, const float* V, const float*
     float* Li = &sram[tile_q_size + (tile_kv_size *2) + tile_s_size + 2 * Bc * d];
     float* Mi = &sram[tile_q_size + (tile_kv_size *2) + tile_s_size + 2* Bc * d + Bc];
 
-    //采用Tr并行的方式加载Q
     for(int x=0;x<d;x++){
             Qi[(tx * d) + x] =Q[q_offset +tile_q_size * blockIdx.x + (tx * d) + x];
         }
@@ -91,10 +91,9 @@ void forward_kernel(const float* Q, const float* K, const float* V, const float*
         for(int i =0 ;i <d;i++){
         
             Oi[(tx * d) + i] = Oi[(tx * d) + i] * (1/Li[tx]);
-            O[q_offset + (tile_q_size * blockIdx.x)+(tx *d) + i] = Oi[(tx * d) + i];
-
+            O[q_offset + (tile_q_size * blockIdx.x)+(tx *d) + i] = Oi[(tx * d) + i]; 
         }
-        
+        //L[L_offset + (Bc * blockIdx.x) + tx] = Mi[tx]+ logf(Li[tx]);  
 
         __syncthreads();
     }
@@ -116,8 +115,12 @@ torch::Tensor forward(torch::Tensor Q, torch::Tensor K, torch::Tensor V,torch::T
     auto O = torch::zeros_like(Q);
     auto l = torch::zeros({B, nh, N});
     auto m = torch::full({B, nh, N}, -INFINITY);
+    //auto L = torch::zeros({B,nh,N});
     torch::Device device(torch::kCUDA);
-    l = l.to(device); m = m.to(device);
+    l = l.to(device);
+    m = m.to(device);
+    //L = L.to(device);
+
 	
     const int sram_size = (3 * Bc * d * sizeof(float)) + (2 * Br * d * sizeof(float)) + (Bc * Br * sizeof(float)) + 2 * (Bc * sizeof(float));
 
