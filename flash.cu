@@ -11,7 +11,7 @@ void forward_kernel(const float* Q, const float* K, const float* V, const float*
     // Offset into Q,K,V,O,l,m - different for each batch and head
     int q_offset = (by*gridDim.z*N*d + bz*N*d);
     int kv_offset = (by*gridDim.z*N*d + bz*N*d); 
-    //int L_offset = (by*gridDim.z*N + by*N ); 
+    int L_offset = (by*gridDim.z*N + by*N ); 
 
     extern __shared__ float sram[];
     int tile_q_size = Bc * d;
@@ -46,7 +46,13 @@ void forward_kernel(const float* Q, const float* K, const float* V, const float*
                 __syncthreads();
                 sum += Qi[(tx * d) + x] * Kj[(mi * d) + x];
             }
-            sum *= softmax_scale;        
+            sum *= softmax_scale;
+
+            //mask compute
+            if(Mask[blockIdx.x * Bc * N + tx * N  + j * Br+ mi] == 1){
+                sum = -10000;
+            }
+                    
        	    Si[(Br * tx) + mi] = sum ;
             // find row max
             if(sum > row_m){
@@ -93,7 +99,7 @@ void forward_kernel(const float* Q, const float* K, const float* V, const float*
             Oi[(tx * d) + i] = Oi[(tx * d) + i] * (1/Li[tx]);
             O[q_offset + (tile_q_size * blockIdx.x)+(tx *d) + i] = Oi[(tx * d) + i]; 
         }
-        //L[L_offset + (Bc * blockIdx.x) + tx] = Mi[tx]+ logf(Li[tx]);  
+        L[L_offset + (Bc * blockIdx.x) + tx] = Mi[tx]+ logf(Li[tx]);  
 
         __syncthreads();
     }
@@ -115,11 +121,11 @@ torch::Tensor forward(torch::Tensor Q, torch::Tensor K, torch::Tensor V,torch::T
     auto O = torch::zeros_like(Q);
     auto l = torch::zeros({B, nh, N});
     auto m = torch::full({B, nh, N}, -INFINITY);
-    //auto L = torch::zeros({B,nh,N});
+    auto L = torch::zeros({B,nh,N});
     torch::Device device(torch::kCUDA);
     l = l.to(device);
     m = m.to(device);
-    //L = L.to(device);
+    L = L.to(device);
 
 	
     const int sram_size = (3 * Bc * d * sizeof(float)) + (2 * Br * d * sizeof(float)) + (Bc * Br * sizeof(float)) + 2 * (Bc * sizeof(float));
@@ -136,7 +142,17 @@ torch::Tensor forward(torch::Tensor Q, torch::Tensor K, torch::Tensor V,torch::T
         N, d, Tc, Tr, Bc, Br, softmax_scale,
         l.data_ptr<float>(), m.data_ptr<float>(), O.data_ptr<float>()
     );
-    return O;
+
+    std::pair<torch::Tensor, torch::Tensor> result(O, L);
+    return result;
+
+/*
+    auto result = model.forward(Q, K, V, Mask);
+    torch::Tensor O = result.first;
+    torch::Tensor L = result.second;
+
+*/
+
 }
 
 
