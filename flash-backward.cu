@@ -109,12 +109,7 @@ void backward_kernel(const float* Q, const float* K, const float* V, const float
 }
 
 
-
-
-
-
-
-torch::Tensor backward(torch::Tensor Q,torch::Tensor K,torch::Tensor V,torch::Tensor Mask,torch:::Tensor dO, ){
+torch::Tensor backward(torch::Tensor Q,torch::Tensor K,torch::Tensor V,torch:::Tensor dO, torch:::Tensor L,torch:::Tensor D){
     const int Bc = 32; 
     const int Br = 32;
 
@@ -141,5 +136,7 @@ torch::Tensor backward(torch::Tensor Q,torch::Tensor K,torch::Tensor V,torch::Te
         N, d, Tc, Tr, Bc, Br, softmax_scale,
         l.data_ptr<float>(), m.data_ptr<float>(), O.data_ptr<float>()
     )
-    return dQ,dK,dV;
+
+    std::pair<torch::Tensor, torch::Tensor,torch::Tensor> result(dQ,dK,dv);
+    return result;
 }
