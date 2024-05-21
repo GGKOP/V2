@@ -58,7 +58,6 @@ class Transformer(nn.Module):
         src_mask = self.make_src_mask(src)
         trg_mask = self.make_trg_mask(trg)
         enc_src = self.encoder(src, None)
-        save_tensor(enc_src, "enc_src")
         output = self.decoder(trg, enc_src, trg_mask, None)
         return output
 

@@ -47,12 +47,10 @@ class Decoder(nn.Module):
 
     def forward(self, trg, enc_src, trg_mask, src_mask):
         trg = self.emb(trg)
-        save_tensor(trg, "target")
 
         for layer in self.layers:
             trg = layer(trg, enc_src, trg_mask, src_mask)
 
         # pass to LM head
-        save_tensor(trg, "output")
         output = self.linear(trg)
         return output

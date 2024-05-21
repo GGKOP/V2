@@ -45,7 +45,6 @@ class Encoder(nn.Module):
 
     def forward(self, x, src_mask):
         x = self.emb(x)
-        save_tensor(x, "source")
         for layer in self.layers:
             x = layer(x, src_mask)
 
