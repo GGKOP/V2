@@ -1,8 +1,4 @@
-"""
-@author : Hyunwoong
-@when : 2019-10-25
-@homepage : https://github.com/gusdnd852
-"""
+
 from torch import nn
 
 from models.layers.scale_dot_product_attention import ScaleDotProductAttention
@@ -24,7 +20,7 @@ class MultiHeadAttention(nn.Module):
 
         # 2. split tensor by number of heads
         q, k, v = self.split(q), self.split(k), self.split(v)
-
+        
         # 3. do scale dot product to compute similarity
         out, attention = self.attention(q, k, v, mask=mask)
 

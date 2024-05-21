@@ -1,29 +1,82 @@
+
 from torch import nn
 
-
-class KVcache(nn.Module):
-    def__init__(self,d_model,n_head):
-    super(KVcache,self).__init__()
-    self.n_head=n_head
-    self.self_attention = MultiHeadAttention(d_model=d_model, n_head=n_head)
+from models.layers.scale_dot_product_attention import ScaleDotProductAttention
 
 
-    def forward(self,tgt,tgt_mask=None):
+class KVcache_MultiHeadAttention(nn.Module):
+    def __init__(self, d_model, n_head):
+        super(KVcache_MultiHeadAttention, self).__init__()
+        self.n_head = n_head
+        self.attention = ScaleDotProductAttention()
+        self.w_q = nn.Linear(d_model, d_model)
+        self.w_k = nn.Linear(d_model, d_model)
+        self.w_v = nn.Linear(d_model, d_model)
+        self.w_concat = nn.Linear(d_model, d_model)
 
-        if self.k_cache is None or self.v_cache is None:
-        # 初始化缓存
-        self.k_cache = tgt.new_zeros(0, tgt.size(1), self.self_attn.k_v_dim)
-        self.v_cache = tgt.new_zeros(0, tgt.size(1), self.self_attn.k_v_dim)
+        # kvcache init
+        self.k_cache = None
+        self.v_cache = None
 
-        # 扩展KV缓存以包含当前时间步的信息
-        new_k = tgt.new_zeros(tgt.size(0), 1, self.self_attn.k_v_dim)
-        new_v = tgt.new_zeros(tgt.size(0), 1, self.self_attn.k_v_dim)
-        new_k.copy_(tgt.view(tgt.size(0), 1, -1))
-        new_v.copy_(tgt.view(tgt.size(0), 1, -1))
+    def forward(self, q, k, v, mask=None):
+        # 1. dot product with weight matrices
+        q, k, v = self.w_q(q), self.w_k(k), self.w_v(v)
 
-        # 更新缓存
-        self.k_cache = torch.cat([self.k_cache, new_k], dim=1)
-        self.v_cache = torch.cat([self.v_cache, new_v], dim=1)
+        # 2. split tensor by number of heads
+        q, k, v = self.split(q), self.split(k), self.split(v)
+        
+        # k,v concat  kv of kvcache
+         if self.k_cache == None:
+            self.k_cache = k
+            self.v_cache = v
+        else:
+            self.k_cache = torch.cat((self.k_cache, k), dim = 1)
+            self.v_cache = torch.cat((self.v_cache, v), dim = 1)
+            k = self.k_cache
+            v = self.v_cache
+
+        # 3. do scale dot product to compute similarity
+        out, attention = self.attention(q, k, v, mask=mask)
+
+        # 4. concat and pass to linear layer
+        out = self.concat(out)
+        out = self.w_concat(out)
+
+        # 5. visualize attention map
+        # TODO : we should implement visualization
+
+        return out
+
+    def split(self, tensor):
+        """
+        split tensor by number of head
+
+        :param tensor: [batch_size, length, d_model]
+        :return: [batch_size, head, length, d_tensor]
+        """
+        batch_size, length, d_model = tensor.size()
+
+        d_tensor = d_model // self.n_head
+        tensor = tensor.view(batch_size, length, self.n_head, d_tensor).transpose(1, 2)
+        # it is similar with group convolution (split by number of heads)
+
+        return tensor
+
+    def concat(self, tensor):
+        """
+        inverse function of self.split(tensor : torch.Tensor)
+
+        :param tensor: [batch_size, head, length, d_tensor]
+        :return: [batch_size, length, d_model]
+        """
+        batch_size, head, length, d_tensor = tensor.size()
+        d_model = head * d_tensor
+
+        tensor = tensor.transpose(1, 2).contiguous().view(batch_size, length, d_model)
+        return tensor
+
+
+
 
         
 
