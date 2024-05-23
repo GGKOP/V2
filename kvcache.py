@@ -1,4 +1,8 @@
 
+import torch
+
+import time
+
 from torch import nn
 
 from models.layers.scale_dot_product_attention import ScaleDotProductAttention
@@ -24,16 +28,25 @@ class KVcache_MultiHeadAttention(nn.Module):
 
         # 2. split tensor by number of heads
         q, k, v = self.split(q), self.split(k), self.split(v)
+
+        print("input_Q:", q.shape)
+        print("input_K:", k.shape)
+        print("input_V:", v.shape)
         
         # k,v concat  kv of kvcache
-         if self.k_cache == None:
+        if self.k_cache == None:
             self.k_cache = k
             self.v_cache = v
         else:
-            self.k_cache = torch.cat((self.k_cache, k), dim = 1)
-            self.v_cache = torch.cat((self.v_cache, v), dim = 1)
+            self.k_cache = torch.cat((self.k_cache, k), dim = 2)
+            self.v_cache = torch.cat((self.v_cache, v), dim = 2)
             k = self.k_cache
             v = self.v_cache
+
+        print("input_Q:", q.shape)
+        print("input_K:", k.shape)
+        print("input_V:", v.shape)
+        
 
         # 3. do scale dot product to compute similarity
         out, attention = self.attention(q, k, v, mask=mask)
@@ -76,7 +89,47 @@ class KVcache_MultiHeadAttention(nn.Module):
         return tensor
 
 
+d_model = 512
+n_head = 8
+model = KVcache_MultiHeadAttention(d_model, n_head)
 
+# 创建一个长序列
+sequence_length = 1000
+batch_size = 1
+d_model = 512
+sequence = torch.randn(batch_size, sequence_length, d_model)
+
+# 准备查询、键和值
+q = sequence
+k = sequence
+v = sequence
+
+##测试不使用缓存
+'''start_time = time.time()
+for i in range(sequence_length):
+    mask = None
+    if i > 0:
+        mask = torch.triu(torch.ones(i, i), diagonal=1).bool().unsqueeze(0)
+    out = model(q[:, i:i+1, :], k[:, i:i+1, :], v[:, i:i+1, :], mask)
+torch.cuda.synchronize() if torch.cuda.is_available() else None
+no_cache_time = time.time() - start_time'''
+
+# 重置模型缓存
+model.k_cache = None
+model.v_cache = None
+
+# 测试使用缓存
+start_time = time.time()
+for i in range(2):
+    mask = None
+    if i > 0:
+        mask = torch.triu(torch.ones(i, i), diagonal=1).bool().unsqueeze(0)
+    out = model.forward(q,k,v,mask=None)
+torch.cuda.synchronize() if torch.cuda.is_available() else None
+with_cache_time = time.time() - start_time
+
+# 打印性能差异
+#print(f"No cache time: {no_cache_time} seconds")
+print(f"With cache time: {with_cache_time} seconds")
 
         
-
