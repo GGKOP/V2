@@ -29,8 +29,8 @@
 配置 Python 环境
 
 ```bash
-conda create -n V2 python=3.10
-conda activate V2
+conda create -n mv python=3.10
+conda activate mv
 source activate mv
 ```
 
