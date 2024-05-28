@@ -1,8 +1,4 @@
-"""
-@author : Hyunwoong
-@when : 2019-10-29
-@homepage : https://github.com/gusdnd852
-"""
+
 from conf import *
 from util.data_loader import DataLoader
 from util.tokenizer import Tokenizer
